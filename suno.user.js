@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Suno Creator (minimal)
 // @namespace    hwiiza.suno
-// @version      0.1.3
-// @description  SunoのCreate画面にパネルを出し、JSON(1曲/配列)を読み込んで生成・連続生成する検証用ミニ版
+// @version      0.1.4
+// @description  SunoのCreate画面に右ドロワーを出し、JSON(1曲/配列)を読み込んで生成・連続生成する検証用ミニ版
 // @match        https://suno.com/*
 // @match        https://www.suno.com/*
 // @run-at       document-idle
@@ -96,11 +96,13 @@
     return true;
   }
 
-  // ---- パネルUI (SPA対策: 無ければ作る／消えたら再注入) ----
+  // ---- UI (SPA対策: 無ければ作る／消えたら再注入) ----
   const PANEL_ID = 'suno-creator-panel';
+  const FAB_ID = 'suno-creator-fab';
 
   function init() {
     if (!document.body || document.getElementById(PANEL_ID)) return;
+    const oldFab = document.getElementById(FAB_ID); if (oldFab) oldFab.remove();
 
     let songs = [];     // 読み込んだ曲
     let statuses = [];  // '' | submitting | submitted | failed
@@ -108,33 +110,47 @@
     let busy = false;
     const BADGE = { submitting: '投入中', submitted: '投入済', failed: '失敗' };
 
+    // 開閉トグル(右端タブ)
+    const fab = document.createElement('button');
+    fab.id = FAB_ID;
+    fab.textContent = '♪ Suno Creator';
+    document.body.appendChild(fab);
+
     const panel = document.createElement('div');
     panel.id = PANEL_ID;
     panel.innerHTML = `
     <style>
-      #${PANEL_ID}{position:fixed;right:16px;bottom:16px;width:360px;z-index:2147483647;
-        background:#101012;color:#f7f4ef;border:1px solid #2e2e34;border-radius:12px;
-        font-family:"Neue Montreal",system-ui,"Segoe UI","Yu Gothic UI",sans-serif;font-size:13px;
-        box-shadow:0 10px 36px rgba(0,0,0,.6);}
+      #${FAB_ID}{position:fixed;right:0;top:50%;transform:translateY(-50%);z-index:2147483646;
+        background:#252529;color:#f7f4ef;border:1px solid #2e2e34;border-right:none;border-radius:10px 0 0 10px;
+        padding:12px 7px;cursor:pointer;writing-mode:vertical-rl;font-size:12px;letter-spacing:.1em;
+        font-family:"Neue Montreal",system-ui,"Segoe UI",sans-serif;box-shadow:-4px 0 16px rgba(0,0,0,.4);}
+      #${FAB_ID}:hover{background:#303035;}
+      #${PANEL_ID}{position:fixed;top:0;right:0;height:100vh;width:380px;z-index:2147483647;
+        background:#101012;color:#f7f4ef;border-left:1px solid #2e2e34;display:flex;flex-direction:column;
+        transform:translateX(100%);transition:transform .22s ease;box-shadow:-12px 0 40px rgba(0,0,0,.55);
+        font-family:"Neue Montreal",system-ui,"Segoe UI","Yu Gothic UI",sans-serif;font-size:13px;}
+      #${PANEL_ID}.open{transform:translateX(0);}
       #${PANEL_ID} *{box-sizing:border-box;}
-      #${PANEL_ID} .hd{display:flex;align-items:center;gap:8px;padding:10px 13px;border-bottom:1px solid #2e2e34;cursor:move;}
-      #${PANEL_ID} .hd b{font-size:13px;letter-spacing:.02em;}
-      #${PANEL_ID} .bd{padding:11px 13px;}
-      #${PANEL_ID} .row{display:flex;gap:7px;align-items:center;}
+      #${PANEL_ID} .hd{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid #2e2e34;flex-shrink:0;}
+      #${PANEL_ID} .hd b{font-size:14px;letter-spacing:.02em;}
+      #${PANEL_ID} .bd{flex:1;display:flex;flex-direction:column;min-height:0;padding:12px 14px;gap:10px;}
+      #${PANEL_ID} .row{display:flex;gap:8px;align-items:center;}
       #${PANEL_ID} button{background:#252529;color:#f7f4ef;border:1px solid #2e2e34;border-radius:999px;
-        padding:6px 13px;cursor:pointer;font-size:12px;font-family:inherit;}
+        padding:6px 14px;cursor:pointer;font-size:12px;font-family:inherit;}
       #${PANEL_ID} button:hover{background:#303035;}
       #${PANEL_ID} button.primary{background:#f7f4ef;border-color:#f7f4ef;color:#101012;font-weight:600;}
       #${PANEL_ID} button.primary:hover{background:#fff;}
       #${PANEL_ID} button:disabled{opacity:.45;cursor:not-allowed;}
+      #${PANEL_ID} .x{background:transparent;border:none;color:#8a8a90;font-size:18px;padding:0 4px;line-height:1;}
+      #${PANEL_ID} .x:hover{color:#f7f4ef;background:transparent;}
       #${PANEL_ID} .cnt{color:#8a8a90;font-size:11px;}
-      #${PANEL_ID} .list{margin-top:9px;max-height:150px;overflow:auto;border:1px solid #2e2e34;border-radius:9px;}
-      #${PANEL_ID} .empty{color:#8a8a90;font-size:11px;padding:14px;text-align:center;}
-      #${PANEL_ID} .item{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid #2e2e34;cursor:pointer;}
+      #${PANEL_ID} .list{flex-shrink:0;max-height:34vh;overflow:auto;border:1px solid #2e2e34;border-radius:9px;}
+      #${PANEL_ID} .empty{color:#8a8a90;font-size:11px;padding:16px;text-align:center;}
+      #${PANEL_ID} .item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid #2e2e34;cursor:pointer;}
       #${PANEL_ID} .item:last-child{border-bottom:none;}
       #${PANEL_ID} .item:hover{background:#1a1a1d;}
       #${PANEL_ID} .item.sel{background:#252529;}
-      #${PANEL_ID} .item .ix{color:#8a8a90;width:15px;text-align:right;font-size:11px;}
+      #${PANEL_ID} .item .ix{color:#8a8a90;width:16px;text-align:right;font-size:11px;}
       #${PANEL_ID} .item .mt{flex:1;min-width:0;}
       #${PANEL_ID} .item .t{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
       #${PANEL_ID} .item .s{font-size:10px;color:#8a8a90;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -142,25 +158,24 @@
       #${PANEL_ID} .bdg.invalid,#${PANEL_ID} .bdg.failed{color:#ff8a8a;border-color:#5a2a2a;}
       #${PANEL_ID} .bdg.submitting{color:#9ec5ff;border-color:#2a4a6b;}
       #${PANEL_ID} .bdg.submitted{color:#8fe3b0;border-color:#2a5a42;}
-      #${PANEL_ID} .detail{margin-top:9px;border:1px solid #2e2e34;border-radius:9px;padding:10px;max-height:240px;overflow:auto;}
-      #${PANEL_ID} .detail .ph{color:#8a8a90;font-size:12px;text-align:center;padding:14px 0;}
-      #${PANEL_ID} .fld{margin-bottom:8px;}
+      #${PANEL_ID} .detail{flex:1;min-height:120px;overflow:auto;border:1px solid #2e2e34;border-radius:9px;padding:11px;}
+      #${PANEL_ID} .detail .ph{color:#8a8a90;font-size:12px;text-align:center;padding:20px 0;}
+      #${PANEL_ID} .fld{margin-bottom:9px;}
       #${PANEL_ID} .fld label{display:block;font-size:10px;color:#8a8a90;margin-bottom:3px;}
       #${PANEL_ID} input[type=text],#${PANEL_ID} textarea,#${PANEL_ID} select{width:100%;background:#0b0b0d;color:#f7f4ef;
-        border:1px solid #2e2e34;border-radius:7px;padding:6px 8px;font-family:inherit;font-size:12px;outline:none;}
+        border:1px solid #2e2e34;border-radius:7px;padding:7px 9px;font-family:inherit;font-size:12px;outline:none;}
       #${PANEL_ID} input:focus,#${PANEL_ID} textarea:focus,#${PANEL_ID} select:focus{border-color:#f7f4ef;}
-      #${PANEL_ID} textarea{height:90px;resize:vertical;font-family:Consolas,monospace;line-height:1.45;}
+      #${PANEL_ID} textarea{height:130px;resize:vertical;font-family:Consolas,monospace;line-height:1.45;}
       #${PANEL_ID} .two{display:flex;gap:8px;}
       #${PANEL_ID} .two>div{flex:1;}
-      #${PANEL_ID} .chk{display:flex;align-items:center;gap:6px;margin-bottom:8px;}
+      #${PANEL_ID} .chk{display:flex;align-items:center;gap:6px;margin-bottom:9px;}
       #${PANEL_ID} .chk input{width:15px;height:15px;accent-color:#f7f4ef;}
       #${PANEL_ID} .chk label{margin:0;color:#f7f4ef;font-size:12px;}
-      #${PANEL_ID} .log{margin-top:9px;height:64px;overflow:auto;background:#0b0b0d;border:1px solid #2e2e34;border-radius:7px;
+      #${PANEL_ID} .log{flex-shrink:0;height:74px;overflow:auto;background:#0b0b0d;border:1px solid #2e2e34;border-radius:7px;
         padding:6px 8px;font-family:Consolas,monospace;font-size:11px;color:#8a8a90;white-space:pre-wrap;}
-      #${PANEL_ID} .min .bd{display:none;}
     </style>
     <div class="hd"><b>Suno Creator</b><span style="flex:1"></span>
-      <button id="sc-min" style="padding:1px 9px;border-radius:7px;">_</button></div>
+      <button id="sc-x" class="x" title="閉じる">×</button></div>
     <div class="bd">
       <div class="row">
         <button id="sc-file">ファイル読込</button>
@@ -178,6 +193,12 @@
     const $ = (id) => panel.querySelector(id);
     const logEl = $('#sc-log');
     const log = (m) => { logEl.textContent += '\n' + m; logEl.scrollTop = logEl.scrollHeight; };
+
+    // 開閉(インラインtransformで確実に。CSSの.open上書きに依存しない)
+    const open = () => { panel.style.transform = 'translateX(0)'; fab.style.display = 'none'; };
+    const close = () => { panel.style.transform = 'translateX(100%)'; fab.style.display = ''; };
+    fab.addEventListener('click', open);
+    $('#sc-x').addEventListener('click', close);
 
     // ---- リスト ----
     function renderList() {
@@ -218,7 +239,7 @@
             <option value="auto">Auto</option><option value="female">Female</option><option value="male">Male</option></select></div>
           <div class="fld"><label>Exclude</label><input type="text" id="d-exclude"></div>
         </div>
-        ${extra.length ? '<div class="cnt" style="margin-bottom:8px;">' + extra.join(' / ') + '（スライダーは未対応・既定値）</div>' : ''}
+        ${extra.length ? '<div class="cnt" style="margin-bottom:9px;">' + extra.join(' / ') + '（スライダーは未対応・既定値）</div>' : ''}
         <button id="d-gen" class="primary" style="width:100%;">この曲を生成</button>`;
       $('#d-title').value = s.title || '';
       $('#d-style').value = s.style || '';
@@ -226,18 +247,13 @@
       $('#d-lyrics').value = s.lyrics || '';
       $('#d-inst').checked = !!s.instrumental;
       $('#d-vocal').value = ['male', 'female', 'auto'].includes(s.vocal) ? s.vocal : 'auto';
+      function syncInst() { const on = $('#d-inst').checked; $('#d-lyrics').disabled = on; $('#d-lyr-wrap').style.opacity = on ? .4 : 1; }
       syncInst();
-
       const upd = () => {
-        s.title = $('#d-title').value;
-        s.style = $('#d-style').value;
-        s.exclude = $('#d-exclude').value;
-        s.lyrics = $('#d-lyrics').value;
-        s.instrumental = $('#d-inst').checked;
-        s.vocal = $('#d-vocal').value;
+        s.title = $('#d-title').value; s.style = $('#d-style').value; s.exclude = $('#d-exclude').value;
+        s.lyrics = $('#d-lyrics').value; s.instrumental = $('#d-inst').checked; s.vocal = $('#d-vocal').value;
         renderList();
       };
-      function syncInst() { const on = $('#d-inst').checked; $('#d-lyrics').disabled = on; $('#d-lyr-wrap').style.opacity = on ? .4 : 1; }
       ['d-title', 'd-style', 'd-exclude', 'd-lyrics', 'd-vocal'].forEach((id) => $('#' + id).addEventListener('input', upd));
       $('#d-inst').addEventListener('change', () => { upd(); syncInst(); });
       $('#d-gen').addEventListener('click', () => genIndex(sel));
@@ -265,7 +281,6 @@
     }
 
     // ---- ハンドラ ----
-    $('#sc-min').addEventListener('click', () => panel.classList.toggle('min'));
     $('#sc-file').addEventListener('click', () => $('#sc-fileinput').click());
     $('#sc-fileinput').addEventListener('change', (e) => {
       const f = e.target.files && e.target.files[0];
@@ -301,18 +316,10 @@
       finally { busy = false; $('#sc-run').disabled = false; }
     });
 
-    // ドラッグ移動
-    (function () {
-      const hd = panel.querySelector('.hd'); let sx, sy, ox, oy, on = false;
-      hd.addEventListener('mousedown', (e) => { if (e.target.id === 'sc-min') return; on = true; sx = e.clientX; sy = e.clientY; const r = panel.getBoundingClientRect(); ox = r.left; oy = r.top; e.preventDefault(); });
-      window.addEventListener('mousemove', (e) => { if (!on) return; panel.style.left = (ox + e.clientX - sx) + 'px'; panel.style.top = (oy + e.clientY - sy) + 'px'; panel.style.right = 'auto'; panel.style.bottom = 'auto'; });
-      window.addEventListener('mouseup', () => { on = false; });
-    })();
-
-    console.log('[Suno Creator] panel injected');
+    console.log('[Suno Creator] ready (closed)');
   } // end init
 
   init();
-  // SunoはSPA。マウント後/ページ遷移でパネルが無くなったら作り直す
+  // SunoはSPA。マウント後/ページ遷移でUIが無くなったら作り直す
   setInterval(() => { if (!document.getElementById(PANEL_ID)) init(); }, 1500);
 })();
