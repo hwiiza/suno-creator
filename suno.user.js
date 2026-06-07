@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Suno Creator (minimal)
 // @namespace    hwiiza.suno
-// @version      0.1.0
+// @version      0.1.1
 // @description  SunoのCreate画面にパネルを出し、JSON(1曲/配列)を貼って生成・連続生成する検証用ミニ版
 // @match        https://suno.com/*
 // @match        https://www.suno.com/*
@@ -150,6 +150,21 @@
       #${PANEL_ID} .log{margin-top:8px;height:84px;overflow:auto;background:#0b0d12;border:1px solid #2a3040;
         border-radius:7px;padding:6px 8px;font-family:Consolas,monospace;font-size:11px;color:#8b93a7;white-space:pre-wrap;}
       #${PANEL_ID} .min .bd{display:none;}
+      #${PANEL_ID} .cnt{color:#6c8cff;font-weight:600;font-size:11px;}
+      #${PANEL_ID} .list{margin-top:8px;max-height:160px;overflow:auto;border:1px solid #2a3040;border-radius:7px;background:#0b0d12;}
+      #${PANEL_ID} .list .empty{color:#8b93a7;font-size:11px;padding:12px;text-align:center;}
+      #${PANEL_ID} .item{display:flex;align-items:center;gap:7px;padding:6px 9px;border-bottom:1px solid #2a3040;}
+      #${PANEL_ID} .item:last-child{border-bottom:none;}
+      #${PANEL_ID} .item .ix{color:#8b93a7;width:16px;text-align:right;font-size:11px;}
+      #${PANEL_ID} .item .mt{flex:1;min-width:0;}
+      #${PANEL_ID} .item .t{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+      #${PANEL_ID} .item .s{font-size:10px;color:#8b93a7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+      #${PANEL_ID} .item button{flex:0 0 auto;padding:3px 8px;font-size:11px;}
+      #${PANEL_ID} .bdg{font-size:10px;padding:1px 7px;border-radius:999px;border:1px solid #2a3040;color:#8b93a7;white-space:nowrap;}
+      #${PANEL_ID} .bdg.invalid{color:#ff6b6b;border-color:#6b2a2a;}
+      #${PANEL_ID} .bdg.submitting{color:#79c0ff;border-color:#2a4a6b;}
+      #${PANEL_ID} .bdg.submitted{color:#4caf7d;border-color:#2a5a42;}
+      #${PANEL_ID} .bdg.failed{color:#ff6b6b;border-color:#6b2a2a;}
     </style>
     <div class="hd"><b>Suno Creator</b><span style="flex:1"></span>
       <button id="sc-min" style="flex:0 0 auto;padding:2px 8px;">_</button></div>
@@ -158,13 +173,18 @@
 複数: [ {...}, {...} ]（最大5曲）'></textarea>
       <div class="row">
         <button id="sc-file" style="flex:0 0 auto;">ファイル読込</button>
-        <button id="sc-fmt" style="flex:0 0 70px;">整形</button>
+        <button id="sc-list-btn" style="flex:0 0 auto;">リスト化</button>
+        <button id="sc-fmt" style="flex:0 0 60px;">整形</button>
       </div>
+      <div style="display:flex;align-items:center;margin-top:8px;">
+        <span class="cnt" id="sc-count">0曲</span>
+      </div>
+      <div class="list" id="sc-list"><div class="empty">JSONを読み込み/貼り付け→「リスト化」で曲ごとに表示</div></div>
       <div class="row">
-        <button id="sc-run" class="primary">生成 / 連続生成</button>
+        <button id="sc-run" class="primary">連続生成（全部）</button>
       </div>
       <input id="sc-fileinput" type="file" accept=".json,application/json" style="display:none" />
-      <div class="log" id="sc-log">「ファイル読込」でJSONを選ぶか、直接貼って「生成」。配列なら順に投入（最大5曲）。</div>
+      <div class="log" id="sc-log">「ファイル読込」or 貼り付け→「リスト化」。各行で個別生成／「連続生成（全部）」で順に投入（最大5曲）。</div>
     </div>`;
   document.body.appendChild(panel);
 
@@ -172,13 +192,67 @@
   const logEl = $('#sc-log');
   const log = (m) => { logEl.textContent += '\n' + m; logEl.scrollTop = logEl.scrollHeight; };
 
+  // ---- リスト状態 ----
+  let songs = [];      // 読み込んだ曲
+  let statuses = [];   // 各曲の状態 '' | submitting | submitted | failed
+  let busy = false;
+  const BADGE = { submitting: '投入中', submitted: '投入済み', failed: '失敗' };
+
+  function renderList() {
+    $('#sc-count').textContent = songs.length + '曲';
+    const el = $('#sc-list');
+    if (!songs.length) { el.innerHTML = '<div class="empty">JSONを読み込み/貼り付け→「リスト化」で曲ごとに表示</div>'; return; }
+    el.innerHTML = '';
+    songs.forEach((s, i) => {
+      const err = validate(s);
+      const st = statuses[i] || '';
+      const item = document.createElement('div');
+      item.className = 'item';
+      item.innerHTML =
+        '<span class="ix">' + (i + 1) + '</span>' +
+        '<div class="mt"><div class="t"></div><div class="s"></div></div>' +
+        (err ? '<span class="bdg invalid">要確認</span>' : (st ? '<span class="bdg ' + st + '">' + (BADGE[st] || st) + '</span>' : '')) +
+        '<button data-gen="' + i + '">生成</button>';
+      item.querySelector('.t').textContent = s.title || '(無題・自動命名)';
+      item.querySelector('.s').textContent = (s.instrumental ? '[inst] ' : '') + (s.style || '(スタイル未設定)');
+      item.querySelector('[data-gen]').addEventListener('click', () => genIndex(i));
+      el.appendChild(item);
+    });
+  }
+  function setStatus(i, st) { statuses[i] = st; renderList(); }
+
+  // textarea のJSON → songs[] → リスト表示
+  function parseToList(showErr) {
+    let data;
+    try { data = JSON.parse($('#sc-json').value); }
+    catch (e) { if (showErr) log('✖ JSON不正: ' + e.message); return false; }
+    songs = Array.isArray(data) ? data : [data];
+    statuses = songs.map(() => '');
+    renderList();
+    return true;
+  }
+
+  // 個別生成
+  async function genIndex(i) {
+    if (busy) return;
+    const s = songs[i]; const err = validate(s);
+    if (err) { log(`✖ #${i + 1}: ${err}`); return; }
+    busy = true; $('#sc-run').disabled = true;
+    setStatus(i, 'submitting');
+    log(`生成: ${s.title || '#' + (i + 1)}`);
+    try { const ok = await generateOne(s, log); setStatus(i, ok ? 'submitted' : 'failed'); }
+    catch (e) { setStatus(i, 'failed'); log('✖ ' + e.message); }
+    finally { busy = false; $('#sc-run').disabled = false; }
+  }
+
   $('#sc-min').addEventListener('click', () => panel.classList.toggle('min'));
+  $('#sc-list-btn').addEventListener('click', () => parseToList(true));
   $('#sc-fmt').addEventListener('click', () => {
-    try { $('#sc-json').value = JSON.stringify(JSON.parse($('#sc-json').value), null, 2); }
+    try { $('#sc-json').value = JSON.stringify(JSON.parse($('#sc-json').value), null, 2); parseToList(false); }
     catch (e) { log('✖ JSON不正: ' + e.message); }
   });
 
-  // ファイル選択でJSON読込 → テキストエリアへ展開
+  // ファイル選択でJSON読込 → テキストエリアへ展開 → リスト化
   $('#sc-file').addEventListener('click', () => $('#sc-fileinput').click());
   $('#sc-fileinput').addEventListener('change', (e) => {
     const f = e.target.files && e.target.files[0];
@@ -189,32 +263,32 @@
       try {
         const data = JSON.parse(txt);
         $('#sc-json').value = JSON.stringify(data, null, 2);
-        const n = Array.isArray(data) ? data.length : 1;
-        log('📂 読込: ' + f.name + '（' + n + '曲）');
+        parseToList(true);
+        log('📂 読込: ' + f.name + '（' + songs.length + '曲）');
       } catch (err) { log('✖ JSON不正: ' + err.message); }
     };
     rd.onerror = () => log('✖ 読込失敗');
     rd.readAsText(f, 'utf-8');
-    e.target.value = ''; // 同じファイルを再選択できるようにリセット
+    e.target.value = '';
   });
 
-  let busy = false;
+  // 連続生成（リスト全部・最大5曲）
   $('#sc-run').addEventListener('click', async () => {
     if (busy) return;
-    let data;
-    try { data = JSON.parse($('#sc-json').value); }
-    catch (e) { log('✖ JSON不正: ' + e.message); return; }
-    let songs = Array.isArray(data) ? data : [data];
+    if (!songs.length && !parseToList(true)) return;
+    if (!songs.length) { log('曲がありません。「リスト化」してください。'); return; }
     for (let i = 0; i < songs.length; i++) { const e = validate(songs[i]); if (e) { log(`✖ #${i + 1}: ${e}`); return; } }
-    if (songs.length > MAX_BATCH) { log(`⚠ 最大${MAX_BATCH}曲。先頭${MAX_BATCH}曲のみ投入します。`); songs = songs.slice(0, MAX_BATCH); }
-
+    const n = Math.min(songs.length, MAX_BATCH);
+    if (songs.length > MAX_BATCH) log(`⚠ 最大${MAX_BATCH}曲。先頭${MAX_BATCH}曲のみ投入します。`);
     busy = true; $('#sc-run').disabled = true;
-    log(`— ${songs.length}曲 生成 —`);
+    log(`— ${n}曲 連続生成 —`);
     try {
-      for (let i = 0; i < songs.length; i++) {
-        log(`[${i + 1}/${songs.length}]`);
-        await generateOne(songs[i], log);
-        if (i < songs.length - 1) await sleep(9000); // 次の投入まで待つ
+      for (let i = 0; i < n; i++) {
+        log(`[${i + 1}/${n}] ${songs[i].title || ''}`);
+        setStatus(i, 'submitting');
+        const ok = await generateOne(songs[i], log);
+        setStatus(i, ok ? 'submitted' : 'failed');
+        if (i < n - 1) await sleep(9000);
       }
       log('✅ 完了（Suno側で生成中）');
     } catch (e) { log('✖ ' + e.message); }
