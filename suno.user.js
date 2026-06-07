@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Suno Creator (minimal)
 // @namespace    hwiiza.suno
-// @version      0.1.5
+// @version      0.1.6
 // @description  SunoのCreate画面に右ドロワーを出し、JSON(1曲/配列)を読み込んで生成・連続生成する検証用ミニ版
 // @match        https://suno.com/*
 // @match        https://www.suno.com/*
@@ -16,7 +16,11 @@
 (function () {
   'use strict';
 
-  const MAX_BATCH = 5; // Sunoの同時生成上限(検証版は安全に最大5曲で打ち切り)
+  const MAX_CONCURRENT = 10;  // Premier: 同時生成は最大10曲(=20バリアント)
+  const INFLIGHT_SEC = 240;   // 生成中とみなす推定時間(枠の概算。完了検知が無いため時間ベース)
+  const WAIT_KEY = 'sunoCreator.waitSeconds';
+  const getWait = () => { const v = parseInt(localStorage.getItem(WAIT_KEY) || '', 10); return Number.isFinite(v) && v >= 0 ? v : 60; };
+  const setWait = (v) => localStorage.setItem(WAIT_KEY, String(v));
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   // ---- DOMユーティリティ ----
@@ -151,6 +155,9 @@
       #${PANEL_ID} *{box-sizing:border-box;}
       #${PANEL_ID} .hd{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid #2e2e34;flex-shrink:0;}
       #${PANEL_ID} .hd b{font-size:14px;letter-spacing:.02em;}
+      #${PANEL_ID} .settings{padding:11px 14px;border-bottom:1px solid #2e2e34;background:#16161b;flex-shrink:0;}
+      #${PANEL_ID} .settings label{font-size:12px;color:#f7f4ef;display:flex;align-items:center;gap:8px;}
+      #${PANEL_ID} .settings input{width:80px;background:#0b0b0d;color:#f7f4ef;border:1px solid #2e2e34;border-radius:7px;padding:5px 8px;font-family:inherit;font-size:12px;outline:none;}
       #${PANEL_ID} .bd{flex:1;display:flex;flex-direction:column;min-height:0;padding:12px 14px;gap:10px;}
       #${PANEL_ID} .row{display:flex;gap:8px;align-items:center;}
       #${PANEL_ID} button{background:#252529;color:#f7f4ef;border:1px solid #2e2e34;border-radius:999px;
@@ -199,7 +206,12 @@
         padding:6px 8px;font-family:Consolas,monospace;font-size:11px;color:#8a8a90;white-space:pre-wrap;}
     </style>
     <div class="hd"><b>Suno Creator</b><span style="flex:1"></span>
+      <button id="sc-gear" class="x" title="設定">⚙</button>
       <button id="sc-x" class="x" title="閉じる">×</button></div>
+    <div id="sc-settings" class="settings" style="display:none;">
+      <label>次の曲まで待機（秒）<input type="number" id="sc-wait" min="0" step="5"></label>
+      <div class="cnt" style="margin-top:5px;">Premier: 同時生成は最大${MAX_CONCURRENT}曲。超過分は枠が空くまで待機して投入。</div>
+    </div>
     <div class="bd">
       <div class="row">
         <button id="sc-file">ファイル読込</button>
@@ -224,6 +236,19 @@
     const close = () => { panel.style.transform = 'translateX(100%)'; fab.style.display = ''; };
     fab.addEventListener('click', open);
     $('#sc-x').addEventListener('click', close);
+
+    // 設定(歯車): 待機秒数
+    $('#sc-gear').addEventListener('click', () => {
+      const s = $('#sc-settings');
+      const show = s.style.display === 'none';
+      s.style.display = show ? 'block' : 'none';
+      if (show) $('#sc-wait').value = getWait();
+    });
+    $('#sc-wait').addEventListener('change', () => {
+      let v = parseInt($('#sc-wait').value, 10);
+      if (!Number.isFinite(v) || v < 0) v = 60;
+      setWait(v); $('#sc-wait').value = v; log('待機時間: ' + v + '秒');
+    });
 
     // ---- リスト ----
     function renderList() {
@@ -332,17 +357,23 @@
       if (busy) return;
       if (!songs.length) { log('曲がありません。「ファイル読込」してください。'); return; }
       for (let i = 0; i < songs.length; i++) { const e = validate(songs[i]); if (e) { log(`✖ #${i + 1}: ${e}`); return; } }
-      const n = Math.min(songs.length, MAX_BATCH);
-      if (songs.length > MAX_BATCH) log(`⚠ 最大${MAX_BATCH}曲。先頭${MAX_BATCH}曲のみ投入します。`);
+      const wait = getWait();
+      const inflight = [];   // 投入時刻(直近INFLIGHT_SECを生成中とみなす)
       busy = true; $('#sc-run').disabled = true;
-      log(`— ${n}曲 連続生成 —`);
+      log(`— ${songs.length}曲 連続生成（間隔${wait}秒 / 同時上限${MAX_CONCURRENT}曲）—`);
       try {
-        for (let i = 0; i < n; i++) {
-          log(`[${i + 1}/${n}] ${songs[i].title || ''}`);
+        for (let i = 0; i < songs.length; i++) {
+          // 同時生成が上限なら枠が空く(推定)まで待機
+          while (inflight.filter((t) => Date.now() - t < INFLIGHT_SEC * 1000).length >= MAX_CONCURRENT) {
+            log(`生成中が上限(${MAX_CONCURRENT}曲)。${wait}秒待機して再確認...`);
+            await sleep(wait * 1000);
+          }
+          log(`[${i + 1}/${songs.length}] ${songs[i].title || ''}`);
           setStatus(i, 'submitting');
           const ok = await generateOne(songs[i], log);
           setStatus(i, ok ? 'submitted' : 'failed');
-          if (i < n - 1) await sleep(9000);
+          inflight.push(Date.now());
+          if (i < songs.length - 1) await sleep(wait * 1000);
         }
         log('✅ 完了（Suno側で生成中）');
       } catch (e) { log('✖ ' + e.message); }
