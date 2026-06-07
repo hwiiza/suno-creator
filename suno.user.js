@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Suno Creator (minimal)
 // @namespace    hwiiza.suno
-// @version      0.1.1
+// @version      0.1.2
 // @description  SunoのCreate画面にパネルを出し、JSON(1曲/配列)を貼って生成・連続生成する検証用ミニ版
 // @match        https://suno.com/*
 // @match        https://www.suno.com/*
@@ -126,9 +126,11 @@
     return true;
   }
 
-  // ---- パネルUI ----
+  // ---- パネルUI (SPA対策: 無ければ作る／消えたら再注入) ----
   const PANEL_ID = 'suno-creator-panel';
-  if (document.getElementById(PANEL_ID)) return;
+
+  function init() {
+    if (!document.body || document.getElementById(PANEL_ID)) return;
 
   const panel = document.createElement('div');
   panel.id = PANEL_ID;
@@ -304,4 +306,9 @@
   })();
 
   console.log('[Suno Creator] panel injected');
+  } // end init
+
+  init();
+  // SunoはSPA。マウント後/ページ遷移でパネルが無くなったら作り直す
+  setInterval(() => { if (!document.getElementById(PANEL_ID)) init(); }, 1500);
 })();
