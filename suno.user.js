@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Suno Creator (minimal)
 // @namespace    hwiiza.suno
-// @version      0.1.4
+// @version      0.1.5
 // @description  SunoのCreate画面に右ドロワーを出し、JSON(1曲/配列)を読み込んで生成・連続生成する検証用ミニ版
 // @match        https://suno.com/*
 // @match        https://www.suno.com/*
@@ -56,6 +56,22 @@
     const btn = byText('button', label);
     if (btn && btn.getAttribute('data-selected') !== 'true') btn.click();
   }
+  // カスタムスライダー(role=slider)を矢印キーで目標値へ。keyCode必須＋各押下に小休止。
+  async function setSlider(ariaLabel, target) {
+    const s = firstVisible(`[role="slider"][aria-label="${ariaLabel}"]`);
+    if (!s) return false;
+    target = Math.max(0, Math.min(100, Math.round(target)));
+    s.focus();
+    for (let k = 0; k < 220; k++) {
+      const now = Number(s.getAttribute('aria-valuenow'));
+      if (Number.isNaN(now) || now === target) break;
+      const right = now < target;
+      s.dispatchEvent(new KeyboardEvent('keydown', { key: right ? 'ArrowRight' : 'ArrowLeft', code: right ? 'ArrowRight' : 'ArrowLeft', keyCode: right ? 39 : 37, which: right ? 39 : 37, bubbles: true, cancelable: true }));
+      await sleep(32);
+      if (Number(s.getAttribute('aria-valuenow')) === now) break; // 動かない=非対応
+    }
+    return Number(s.getAttribute('aria-valuenow')) === target;
+  }
 
   async function fillSong(song, log) {
     ensureAdvanced();
@@ -70,13 +86,15 @@
     }
     if (song.style) { const st = getStyle(); if (st) setNativeValue(st, song.style); else log('⚠ スタイル欄が見つからない'); }
     if (song.title) { const ti = getTitle(); if (ti) setNativeValue(ti, song.title); }
-    if (song.exclude || (song.vocal && song.vocal !== 'auto')) {
+    const needMore = song.exclude || (song.vocal && song.vocal !== 'auto') || song.weirdness != null || song.styleInfluence != null;
+    if (needMore) {
       ensureMoreOptions();
       await sleep(500);
       if (song.exclude) { const ex = firstVisible('input[placeholder="Exclude styles"]'); if (ex) setNativeValue(ex, song.exclude); }
       if (song.vocal && song.vocal !== 'auto') setVocal(song.vocal);
+      if (song.weirdness != null && !(await setSlider('Weirdness', Number(song.weirdness)))) log('⚠ Weirdness設定に失敗');
+      if (song.styleInfluence != null && !(await setSlider('Style Influence', Number(song.styleInfluence)))) log('⚠ Style Influence設定に失敗');
     }
-    // ※ Weirdness/Style Influenceスライダーはページ内JSでは操作不可（既定値のまま）
   }
 
   function validate(s) {
@@ -171,6 +189,12 @@
       #${PANEL_ID} .chk{display:flex;align-items:center;gap:6px;margin-bottom:9px;}
       #${PANEL_ID} .chk input{width:15px;height:15px;accent-color:#f7f4ef;}
       #${PANEL_ID} .chk label{margin:0;color:#f7f4ef;font-size:12px;}
+      #${PANEL_ID} input[type=range]{width:100%;accent-color:#f7f4ef;margin-top:2px;}
+      #${PANEL_ID} .seclabel{font-size:11px;color:#8a8a90;letter-spacing:.05em;margin:2px 0 -4px;text-transform:uppercase;}
+      #${PANEL_ID} .list{background:#0b0b0d;}
+      #${PANEL_ID} .detail{background:#16161b;}
+      #${PANEL_ID} .detail .dttl{font-size:12px;font-weight:600;color:#f7f4ef;margin-bottom:9px;
+        white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
       #${PANEL_ID} .log{flex-shrink:0;height:74px;overflow:auto;background:#0b0b0d;border:1px solid #2e2e34;border-radius:7px;
         padding:6px 8px;font-family:Consolas,monospace;font-size:11px;color:#8a8a90;white-space:pre-wrap;}
     </style>
@@ -179,11 +203,12 @@
     <div class="bd">
       <div class="row">
         <button id="sc-file">ファイル読込</button>
-        <span class="cnt" id="sc-count">0曲</span>
         <span style="flex:1"></span>
         <button id="sc-run" class="primary">連続生成（全部）</button>
       </div>
+      <div class="seclabel">📋 曲リスト <span class="cnt" id="sc-count">0曲</span></div>
       <div class="list" id="sc-list"><div class="empty">「ファイル読込」でJSON(1曲/配列)を選択</div></div>
+      <div class="seclabel">⚙ 詳細（選択中の曲）</div>
       <div class="detail" id="sc-detail"><div class="ph">↑ リストから曲を選択すると内容を表示</div></div>
       <input id="sc-fileinput" type="file" accept=".json,application/json" style="display:none" />
       <div class="log" id="sc-log">JSONを読み込み→曲を選んで内容確認→「連続生成（全部）」または各曲を生成（最大5曲）。</div>
@@ -226,10 +251,11 @@
       const el = $('#sc-detail');
       if (sel < 0 || !songs[sel]) { el.innerHTML = '<div class="ph">↑ リストから曲を選択すると内容を表示</div>'; return; }
       const s = songs[sel];
-      const extra = [];
-      if (s.weirdness != null) extra.push('Weirdness ' + s.weirdness);
-      if (s.styleInfluence != null) extra.push('StyleInfluence ' + s.styleInfluence);
+      const w = s.weirdness != null ? Number(s.weirdness) : 50;
+      const si = s.styleInfluence != null ? Number(s.styleInfluence) : 50;
       el.innerHTML = `
+        <button id="d-gen" class="primary" style="width:100%;margin-bottom:11px;">この曲を生成</button>
+        <div class="dttl" id="d-head"></div>
         <div class="fld"><label>Title</label><input type="text" id="d-title"></div>
         <div class="fld"><label>Style</label><input type="text" id="d-style"></div>
         <div class="chk"><input type="checkbox" id="d-inst"><label for="d-inst">Instrumental（歌なし）</label></div>
@@ -239,22 +265,29 @@
             <option value="auto">Auto</option><option value="female">Female</option><option value="male">Male</option></select></div>
           <div class="fld"><label>Exclude</label><input type="text" id="d-exclude"></div>
         </div>
-        ${extra.length ? '<div class="cnt" style="margin-bottom:9px;">' + extra.join(' / ') + '（スライダーは未対応・既定値）</div>' : ''}
-        <button id="d-gen" class="primary" style="width:100%;">この曲を生成</button>`;
+        <div class="two">
+          <div class="fld"><label>Weirdness <span id="d-wv">${w}</span></label><input type="range" id="d-weird" min="0" max="100" value="${w}"></div>
+          <div class="fld"><label>Style Influence <span id="d-sv">${si}</span></label><input type="range" id="d-sinf" min="0" max="100" value="${si}"></div>
+        </div>`;
       $('#d-title').value = s.title || '';
       $('#d-style').value = s.style || '';
       $('#d-exclude').value = s.exclude || '';
       $('#d-lyrics').value = s.lyrics || '';
       $('#d-inst').checked = !!s.instrumental;
       $('#d-vocal').value = ['male', 'female', 'auto'].includes(s.vocal) ? s.vocal : 'auto';
+      $('#d-head').textContent = s.title || '(無題・自動命名)';
       function syncInst() { const on = $('#d-inst').checked; $('#d-lyrics').disabled = on; $('#d-lyr-wrap').style.opacity = on ? .4 : 1; }
       syncInst();
       const upd = () => {
         s.title = $('#d-title').value; s.style = $('#d-style').value; s.exclude = $('#d-exclude').value;
         s.lyrics = $('#d-lyrics').value; s.instrumental = $('#d-inst').checked; s.vocal = $('#d-vocal').value;
+        s.weirdness = Number($('#d-weird').value); s.styleInfluence = Number($('#d-sinf').value);
+        $('#d-head').textContent = s.title || '(無題・自動命名)';
         renderList();
       };
       ['d-title', 'd-style', 'd-exclude', 'd-lyrics', 'd-vocal'].forEach((id) => $('#' + id).addEventListener('input', upd));
+      $('#d-weird').addEventListener('input', () => { $('#d-wv').textContent = $('#d-weird').value; upd(); });
+      $('#d-sinf').addEventListener('input', () => { $('#d-sv').textContent = $('#d-sinf').value; upd(); });
       $('#d-inst').addEventListener('change', () => { upd(); syncInst(); });
       $('#d-gen').addEventListener('click', () => genIndex(sel));
     }
