@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Suno Creator (minimal)
 // @namespace    hwiiza.suno
-// @version      0.1.6
+// @version      0.1.7
 // @description  SunoのCreate画面に右ドロワーを出し、JSON(1曲/配列)を読み込んで生成・連続生成する検証用ミニ版
 // @match        https://suno.com/*
 // @match        https://www.suno.com/*
@@ -153,6 +153,9 @@
         font-family:"Neue Montreal",system-ui,"Segoe UI","Yu Gothic UI",sans-serif;font-size:13px;}
       #${PANEL_ID}.open{transform:translateX(0);}
       #${PANEL_ID} *{box-sizing:border-box;}
+      #${PANEL_ID} .dz{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+        background:rgba(16,16,18,.88);border:2px dashed #6c8cff;border-radius:12px;z-index:10;
+        color:#f7f4ef;font-size:14px;pointer-events:none;}
       #${PANEL_ID} .hd{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid #2e2e34;flex-shrink:0;}
       #${PANEL_ID} .hd b{font-size:14px;letter-spacing:.02em;}
       #${PANEL_ID} .settings{padding:11px 14px;border-bottom:1px solid #2e2e34;background:#16161b;flex-shrink:0;}
@@ -223,8 +226,9 @@
       <div class="seclabel">⚙ 詳細（選択中の曲）</div>
       <div class="detail" id="sc-detail"><div class="ph">↑ リストから曲を選択すると内容を表示</div></div>
       <input id="sc-fileinput" type="file" accept=".json,application/json" style="display:none" />
-      <div class="log" id="sc-log">JSONを読み込み→曲を選んで内容確認→「連続生成（全部）」または各曲を生成（最大5曲）。</div>
-    </div>`;
+      <div class="log" id="sc-log">JSONを読み込み（ファイル選択 or ドラッグ&ドロップ）→曲を選んで内容確認→「連続生成（全部）」または各曲を生成。</div>
+    </div>
+    <div id="sc-dz" class="dz">📂 JSONをドロップして読み込み</div>`;
     document.body.appendChild(panel);
 
     const $ = (id) => panel.querySelector(id);
@@ -327,6 +331,20 @@
       renderList(); renderDetail();
     }
 
+    // ファイル(File)を読んでリストへ。ファイル選択・D&D共通。
+    function loadFromFile(f) {
+      if (!f) return;
+      if (!/\.json$/i.test(f.name)) { log('✖ JSONファイルを指定してください: ' + f.name); return; }
+      const rd = new FileReader();
+      rd.onload = () => {
+        const txt = String(rd.result).replace(/^﻿/, '').trim();
+        try { loadData(JSON.parse(txt)); log('📂 読込: ' + f.name + '（' + songs.length + '曲）'); }
+        catch (err) { log('✖ JSON不正: ' + err.message); }
+      };
+      rd.onerror = () => log('✖ 読込失敗');
+      rd.readAsText(f, 'utf-8');
+    }
+
     async function genIndex(i) {
       if (busy) return;
       const s = songs[i], err = validate(s);
@@ -340,19 +358,28 @@
 
     // ---- ハンドラ ----
     $('#sc-file').addEventListener('click', () => $('#sc-fileinput').click());
-    $('#sc-fileinput').addEventListener('change', (e) => {
-      const f = e.target.files && e.target.files[0];
-      if (!f) return;
-      const rd = new FileReader();
-      rd.onload = () => {
-        const txt = String(rd.result).replace(/^﻿/, '').trim();
-        try { loadData(JSON.parse(txt)); log('📂 読込: ' + f.name + '（' + songs.length + '曲）'); }
-        catch (err) { log('✖ JSON不正: ' + err.message); }
-      };
-      rd.onerror = () => log('✖ 読込失敗');
-      rd.readAsText(f, 'utf-8');
-      e.target.value = '';
+    $('#sc-fileinput').addEventListener('change', (e) => { loadFromFile(e.target.files && e.target.files[0]); e.target.value = ''; });
+
+    // ---- ドラッグ&ドロップ(JSON) ----
+    const dz = $('#sc-dz');
+    const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+    const pickJson = (e) => [...(e.dataTransfer.files || [])].find((x) => /\.json$/i.test(x.name)) || (e.dataTransfer.files || [])[0];
+    let dragDepth = 0;
+    ['dragenter', 'dragover'].forEach((ev) => panel.addEventListener(ev, (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
+      if (ev === 'dragenter') dragDepth++;
+      dz.style.display = 'flex';
+    }));
+    panel.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; dz.style.display = 'none'; } });
+    panel.addEventListener('drop', (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault(); dragDepth = 0; dz.style.display = 'none';
+      loadFromFile(pickJson(e));
     });
+    // 右タブ(FAB)にドロップ → 開いて読込
+    ['dragenter', 'dragover'].forEach((ev) => fab.addEventListener(ev, (e) => { if (hasFiles(e)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } }));
+    fab.addEventListener('drop', (e) => { if (!hasFiles(e)) return; e.preventDefault(); open(); loadFromFile(pickJson(e)); });
     $('#sc-run').addEventListener('click', async () => {
       if (busy) return;
       if (!songs.length) { log('曲がありません。「ファイル読込」してください。'); return; }
