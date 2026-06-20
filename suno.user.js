@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Suno Creator (minimal)
+// @name         Suno Creator
 // @namespace    hwiiza.suno
-// @version      0.1.7
-// @description  SunoのCreate画面に右ドロワーを出し、JSON(1曲/配列)を読み込んで生成・連続生成する検証用ミニ版
+// @version      0.1.8
+// @description  SunoのCreate画面にパネルを表示し、JSON(1曲/配列)から曲を生成・連続生成。ファイル選択/ドラッグ&ドロップ対応。
 // @match        https://suno.com/*
 // @match        https://www.suno.com/*
 // @run-at       document-idle
@@ -72,7 +72,7 @@
       const right = now < target;
       s.dispatchEvent(new KeyboardEvent('keydown', { key: right ? 'ArrowRight' : 'ArrowLeft', code: right ? 'ArrowRight' : 'ArrowLeft', keyCode: right ? 39 : 37, which: right ? 39 : 37, bubbles: true, cancelable: true }));
       await sleep(32);
-      if (Number(s.getAttribute('aria-valuenow')) === now) break; // 動かない=非対応
+      if (Number(s.getAttribute('aria-valuenow')) === now) break; // これ以上動かなければ終了
     }
     return Number(s.getAttribute('aria-valuenow')) === target;
   }
@@ -407,7 +407,7 @@
       finally { busy = false; $('#sc-run').disabled = false; }
     });
 
-    console.log('[Suno Creator] ready (closed)');
+    console.log('[Suno Creator] ready');
   } // end init
 
   init();
