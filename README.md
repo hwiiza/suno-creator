@@ -1,20 +1,22 @@
-# Suno Creator (userscript)
+# Suno Creator
 
-Sunoの作成画面に小さなパネルを出し、**JSONを貼る/ファイル選択して曲を生成・連続生成**するTampermonkeyユーザースクリプト。
+[Suno](https://suno.com) の作成画面にパネルを表示し、**JSON から曲をまとめて生成**できる Tampermonkey ユーザースクリプトです。曲データ（タイトル・スタイル・歌詞・ボーカル等）を JSON で用意し、リストから確認・編集しながら 1曲ずつ／連続で生成できます。
 
 ## インストール
 
 1. ブラウザに [Tampermonkey](https://www.tampermonkey.net/) を入れる
-2. 下のリンクを開く → Tampermonkeyのインストール画面が出る → インストール
-   **[suno.user.js をインストール](https://raw.githubusercontent.com/hwiiza/suno-userscript/main/suno.user.js)**
-3. `https://suno.com/create` を開くと右下にパネルが出ます
+2. **[suno.user.js をインストール](https://raw.githubusercontent.com/hwiiza/suno-userscript/main/suno.user.js)** を開く → インストール画面で許可
+3. [suno.com/create](https://suno.com/create) を開く → 画面右端のタブ **「♪ Suno Creator」** をクリックでパネルが開きます
 
 ## 使い方
 
-- **ファイル読込** で `.json` を選ぶ（または直接貼り付け）
-- **生成 / 連続生成** を押す（配列なら順に投入・最大5曲）
+1. **JSON を読み込む** — 「ファイル読込」ボタン、または JSON ファイルをパネルに**ドラッグ&ドロップ**
+2. **曲リスト**から曲を選ぶと、右に**詳細**（タイトル/スタイル/歌詞/ボーカル/Weirdness/Style Influence など）が表示され、その場で編集できます
+3. **「この曲を生成」**（1曲）または **「連続生成（全部）」**（リスト全体）で投入
 
-### JSON形式
+連続生成は既定で **60秒間隔**で投入します（⚙設定で変更可）。Suno の同時生成枠（最大10曲）を超える分は、枠が空くまで待機して順次投入します。
+
+## JSON 形式
 
 ```json
 {
@@ -22,26 +24,32 @@ Sunoの作成画面に小さなパネルを出し、**JSONを貼る/ファイル
   "style": "uplifting trance, euphoric female vocal, 138bpm",
   "lyrics": "[Verse]\n...\n[Chorus]\n...",
   "instrumental": false,
-  "vocal": "female"
+  "vocal": "female",
+  "weirdness": 30,
+  "styleInfluence": 70,
+  "exclude": "rock, metal"
 }
 ```
 
-複数曲は上記オブジェクトの**配列**。`style` / `lyrics` / `instrumental` のいずれか必須。`vocal` は `male` / `female` / `auto`。
+複数曲は上記オブジェクトの**配列**で渡します。
 
-## 対応状況
-
-| 項目 | 状態 |
+| キー | 説明 |
 |---|---|
-| Title / Style / Lyrics / Instrumental | ✅ |
-| Vocal Gender | ✅ |
-| 連続生成（最大5曲） | ✅ |
-| Weirdness / Style Influence | ⚠ 未対応（既定値のまま） |
-| ダウンロード | 未実装 |
+| `title` | 曲名（任意・空なら自動命名） |
+| `style` | スタイル/ジャンル（カンマ区切り） |
+| `lyrics` | 歌詞（`\n` 改行・`[Verse]` 等のタグ可。`instrumental` 時は不要） |
+| `instrumental` | 歌なしなら `true` |
+| `vocal` | `male` / `female` / `auto` |
+| `weirdness` | 0–100 |
+| `styleInfluence` | 0–100 |
+| `exclude` | 除外スタイル（任意） |
+
+`style` / `lyrics` / `instrumental` のいずれかは必須です。
 
 ## メモ
 
 - ログイン済みのブラウザでそのまま動作します（追加の認証設定は不要）。
-- SunoのUI変更で動かなくなることがあります。
+- Suno の UI 変更により動作しなくなることがあります。
 
 ## ライセンス
 
