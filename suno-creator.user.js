@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Suno Creator
 // @namespace    hwiiza.suno
-// @version      0.1.9
+// @version      0.1.10
 // @description  SunoのCreate画面にパネルを表示し、JSON(1曲/配列)から曲を生成・連続生成。ファイル選択/ドラッグ&ドロップ対応。
 // @match        https://suno.com/*
 // @match        https://www.suno.com/*
@@ -9,8 +9,8 @@
 // @grant        none
 // @homepageURL  https://github.com/hwiiza/suno-creator
 // @supportURL   https://github.com/hwiiza/suno-creator/issues
-// @downloadURL  https://raw.githubusercontent.com/hwiiza/suno-creator/main/suno-creator.user.js
-// @updateURL    https://raw.githubusercontent.com/hwiiza/suno-creator/main/suno-creator.user.js
+// @downloadURL  https://hwiiza.github.io/suno-creator.user.js
+// @updateURL    https://hwiiza.github.io/suno-creator.user.js
 // ==/UserScript==
 
 (function () {

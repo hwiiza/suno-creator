@@ -5,7 +5,7 @@
 ## インストール
 
 1. ブラウザに [Tampermonkey](https://www.tampermonkey.net/) を入れる
-2. **[suno-creator.user.js をインストール](https://raw.githubusercontent.com/hwiiza/suno-creator/main/suno-creator.user.js)** を開く → インストール画面で許可
+2. **[suno-creator.user.js をインストール](https://hwiiza.github.io/suno-creator.user.js)** を開く → インストール画面で許可
 3. [suno.com/create](https://suno.com/create) を開く → 画面右端のタブ **「♪ Suno Creator」** をクリックでパネルが開きます
 
 ## 使い方
